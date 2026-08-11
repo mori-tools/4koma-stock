@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#fff7f0" />
+  <title>4コマSTOCK</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="apple-touch-icon-v3.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192-v3.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header class="app-header">
+  <div><p class="eyebrow">4KOMA IDEA & POST MANAGER</p><h1>4コマSTOCK</h1></div>
+  <div class="header-actions">
+    <button id="backupBtn">バックアップ</button><button id="restoreBtn">復元</button><button id="syncBtn">☁︎ 同期</button>
+    <button id="addBtn" class="primary">＋ 追加</button>
+  </div>
+</header>
+<div class="sync-strip"><span id="syncStatus" data-state="local">ローカルのみ</span><span>スマホ・iPad間で同期できます</span></div>
+<main>
+  <section class="summary" aria-label="ストック状況">
+    <button class="summary-card" data-filter="idea"><span>ネタ</span><strong id="ideaCount">0</strong></button>
+    <button class="summary-card" data-filter="making"><span>制作中</span><strong id="makingCount">0</strong></button>
+    <button class="summary-card" data-filter="ready"><span>未使用</span><strong id="readyCount">0</strong></button>
+    <button class="summary-card" data-filter="used"><span>使用済み</span><strong id="usedCount">0</strong></button>
+    <button class="summary-card total" data-filter="all"><span>合計</span><strong id="totalCount">0</strong></button>
+  </section>
+  <section class="toolbar">
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-filter="all">すべて</button><button class="tab" data-filter="idea">ネタ</button><button class="tab" data-filter="making">制作中</button><button class="tab" data-filter="ready">未使用</button><button class="tab" data-filter="used">使用済み</button>
+    </div>
+    <select id="sortSelect"><option value="newest">新しい順</option><option value="oldest">古い順</option><option value="status">進行順</option></select>
+  </section>
+  <section id="emptyState" class="empty-state"><div class="empty-icon">▦</div><h2>まだ4コマストックがありません</h2><p>「＋ 追加」から、ネタだけでも完成画像付きでも登録できます。</p></section>
+  <section id="grid" class="grid" aria-live="polite"></section>
+</main>
+<input id="restoreInput" type="file" accept=".json,application/json" hidden />
+<dialog id="editDialog"><form method="dialog" id="editForm">
+  <div class="dialog-head"><h2 id="dialogTitle">4コマを追加</h2><button value="cancel" class="icon-btn" aria-label="閉じる">×</button></div>
+  <label>画像（任意）<input id="imageInput" type="file" accept="image/*" /></label>
+  <img id="dialogPreview" class="dialog-preview hidden" alt="4コマ画像プレビュー" />
+  <label>タイトル<input id="titleInput" type="text" placeholder="例：全部、大事" /></label>
+  <label>投稿文<textarea id="postInput" rows="5" placeholder="4コマに添える投稿文"></textarea></label>
+  <label>ネタ・内容メモ<textarea id="memoInput" rows="4" placeholder="状況、オチ、セリフ案など"></textarea></label>
+  <label>テーマ<input id="themeInput" type="text" placeholder="例：判断、認識合わせ、修正" /></label>
+  <label>ステータス<select id="statusInput"><option value="idea">ネタ</option><option value="making">制作中</option><option value="ready">完成・未使用</option><option value="used">使用済み</option></select></label>
+  <div class="dialog-meta" id="dialogMeta"></div>
+  <div class="dialog-actions"><button type="button" id="deleteBtn" class="danger hidden">削除</button><button type="button" id="saveBtn" class="primary">保存</button></div>
+</form></dialog>
+<template id="cardTemplate"><article class="card">
+  <button class="image-wrap"><div class="no-image">4コマ<br>ネタ</div><img class="thumb hidden" alt="4コマ画像" /><span class="status-badge"></span></button>
+  <div class="card-body"><h2 class="card-title"></h2><div class="meta-row"><span class="created-at"></span><span class="theme"></span></div><p class="post-text"></p>
+  <div class="card-actions"><button class="copy-btn">投稿文コピー</button><button class="next-btn"></button><button class="edit-btn">編集</button></div></div>
+</article></template>
+<dialog id="syncDialog"><form method="dialog" class="sync-form">
+  <div class="dialog-head"><div><h2>クラウド同期</h2><p class="dialog-lead">Supabaseでスマホ / iPad間を同期します。</p></div><button value="cancel" class="icon-btn">×</button></div>
+  <section class="sync-section"><h3>1. Supabase設定</h3><label>Project URL<input id="supabaseUrl" type="url" placeholder="https://xxxx.supabase.co" /></label><label>Publishable key / anon key<input id="supabaseKey" type="text" /></label><button type="button" id="saveCloudConfigBtn">設定を保存</button><p class="sync-help">最初に同梱の「SUPABASE-SETUP.txt」のSQLを実行してください。おはようSTOCKと同じSupabase Projectでも使えます。</p></section>
+  <section id="authPanel" class="sync-section hidden"><h3>2. 同期アカウント</h3><div id="loggedOutPanel"><label>メールアドレス<input id="syncEmail" type="email" /></label><label>パスワード<input id="syncPassword" type="password" minlength="6" /></label><div class="sync-actions"><button type="button" id="signInBtn" class="primary">ログイン</button><button type="button" id="signUpBtn">初回アカウント作成</button></div></div><div id="loggedInPanel" class="hidden"><p>ログイン中：<span id="loggedInEmail"></span></p><div class="sync-actions"><button type="button" id="syncNowBtn" class="primary">今すぐ同期</button><button type="button" id="signOutBtn">ログアウト</button></div></div></section>
+</form></dialog>
+<div id="toast" class="toast" role="status"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="app.js"></script>
+</body></html>

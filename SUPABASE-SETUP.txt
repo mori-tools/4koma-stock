@@ -1,0 +1,26 @@
+4コマSTOCK v1｜Supabase 初回設定
+================================
+
+おはようSTOCKと同じSupabase Projectを使っても問題ありません。
+下記SQLをSQL Editorで1回だけ実行してください。
+
+create table if not exists public.yonkoma_items (
+  id uuid primary key, user_id uuid not null references auth.users(id) on delete cascade,
+  title text not null default '', post_text text not null default '', memo text not null default '', theme text not null default '',
+  status text not null default 'idea' check (status in ('idea','making','ready','used')),
+  created_at timestamptz not null default now(), used_at timestamptz, image_name text not null default '', image_type text not null default 'image/png',
+  storage_path text not null default '', updated_at timestamptz not null default now(), deleted boolean not null default false
+);
+alter table public.yonkoma_items enable row level security;
+drop policy if exists "yonkoma select own" on public.yonkoma_items; create policy "yonkoma select own" on public.yonkoma_items for select to authenticated using ((select auth.uid())=user_id);
+drop policy if exists "yonkoma insert own" on public.yonkoma_items; create policy "yonkoma insert own" on public.yonkoma_items for insert to authenticated with check ((select auth.uid())=user_id);
+drop policy if exists "yonkoma update own" on public.yonkoma_items; create policy "yonkoma update own" on public.yonkoma_items for update to authenticated using ((select auth.uid())=user_id) with check ((select auth.uid())=user_id);
+drop policy if exists "yonkoma delete own" on public.yonkoma_items; create policy "yonkoma delete own" on public.yonkoma_items for delete to authenticated using ((select auth.uid())=user_id);
+grant select,insert,update,delete on public.yonkoma_items to authenticated;
+insert into storage.buckets(id,name,public) values('yonkoma-stock','yonkoma-stock',false) on conflict(id) do update set public=false;
+drop policy if exists "yonkoma storage select own" on storage.objects; create policy "yonkoma storage select own" on storage.objects for select to authenticated using(bucket_id='yonkoma-stock' and (storage.foldername(name))[1]=(select auth.uid()::text));
+drop policy if exists "yonkoma storage insert own" on storage.objects; create policy "yonkoma storage insert own" on storage.objects for insert to authenticated with check(bucket_id='yonkoma-stock' and (storage.foldername(name))[1]=(select auth.uid()::text));
+drop policy if exists "yonkoma storage update own" on storage.objects; create policy "yonkoma storage update own" on storage.objects for update to authenticated using(bucket_id='yonkoma-stock' and (storage.foldername(name))[1]=(select auth.uid()::text)) with check(bucket_id='yonkoma-stock' and (storage.foldername(name))[1]=(select auth.uid()::text));
+drop policy if exists "yonkoma storage delete own" on storage.objects; create policy "yonkoma storage delete own" on storage.objects for delete to authenticated using(bucket_id='yonkoma-stock' and (storage.foldername(name))[1]=(select auth.uid()::text));
+
+ステータス: idea=ネタ / making=制作中 / ready=完成・未使用 / used=使用済み
