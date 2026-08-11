@@ -50,7 +50,7 @@ async function openSync(){
   const c=config()||{};
   $('#supabaseUrl').value=c.url||'';
   $('#supabaseKey').value=c.key||'';
-  $('#syncPassword').value='';
+  $('#syncPassword').value='';setAuthMessage('');
   if(sb)await session();
   $('#authPanel').classList.toggle('hidden',!sb);
   $('#loggedInPanel').classList.toggle('hidden',!currentUser);
@@ -72,23 +72,53 @@ async function saveCloud(){
   $('#loggedOutPanel').classList.toggle('hidden',!!currentUser);
   toast('クラウド設定を保存しました')
 }
+
+function setAuthMessage(message,type='info'){
+  const el=$('#authMessage');
+  if(!el)return;
+  el.textContent=message||'';
+  el.style.color=type==='error'?'#b42318':type==='ok'?'#2f7d4a':'#555';
+  el.style.fontWeight=type==='error'||type==='ok'?'700':'400';
+}
+function withTimeout(promise,ms=15000){
+  return Promise.race([
+    promise,
+    new Promise((_,reject)=>setTimeout(()=>reject(new Error('通信がタイムアウトしました。ネット接続を確認してください')),ms))
+  ]);
+}
+
 async function signIn(){
   try{
+    setAuthMessage('ログイン中…');
     if(!sb){
-      if(!initSupabase()){toast('先にクラウド設定を保存してください');return}
+      if(!initSupabase()){
+        setAuthMessage('Supabase設定を読み込めません。上の「設定を保存」を押してください。','error');
+        return
+      }
     }
     const email=$('#syncEmail').value.trim(),password=$('#syncPassword').value;
-    if(!email||!password){toast('メールアドレスとパスワードを入力してください');return}
-    toast('ログイン中…');
-    const {data,error}=await sb.auth.signInWithPassword({email,password});
-    if(error){console.error(error);toast(`ログインできませんでした：${error.message}`);return}
+    if(!email||!password){
+      setAuthMessage('メールアドレスとパスワードを入力してください。','error');
+      return
+    }
+    const {data,error}=await withTimeout(sb.auth.signInWithPassword({email,password}),15000);
+    if(error){
+      console.error('auth error',error);
+      setAuthMessage(`ログインできません：${error.message}`,'error');
+      return
+    }
+    if(!data?.user){
+      setAuthMessage('ログイン情報を取得できませんでした。','error');
+      return
+    }
     currentUser=data.user;
-    toast('ログインしました');
-    $('#syncDialog').close();
-    await syncNow()
+    setAuthMessage('ログイン成功。同期しています…','ok');
+    await syncNow(false);
+    setAuthMessage('ログイン・同期できました。','ok');
+    setTimeout(()=>$('#syncDialog').close(),700)
   }catch(e){
     console.error('signIn failed',e);
-    toast(`ログイン処理エラー：${e.message||'接続を確認してください'}`)
+    setAuthMessage(`ログイン処理エラー：${e.message||'接続を確認してください'}`,'error')
   }
 }
 async function signUp(){
@@ -179,7 +209,6 @@ $('#addBtn').onclick=()=>openEditor();$('#saveBtn').onclick=saveEditor;$('#delet
 // v1.3: iOS/Safari向けに同期ボタン処理をwindowへ明示公開
 window.yonkomaSignIn = async function(){
   try{
-    toast('ログイン中…');
     await signIn();
   }catch(e){
     console.error(e);
