@@ -175,32 +175,25 @@ async function syncNow(silent=false){
 }
 $('#addBtn').onclick=()=>openEditor();$('#saveBtn').onclick=saveEditor;$('#deleteBtn').onclick=removeEditing;$('#backupBtn').onclick=backup;$('#restoreBtn').onclick=()=>$('#restoreInput').click();$('#restoreInput').onchange=e=>{if(e.target.files[0])restore(e.target.files[0]);e.target.value=''};$('.tabs').onclick=e=>{if(e.target.matches('.tab'))setFilter(e.target.dataset.filter)};document.querySelector('.summary').onclick=e=>{const b=e.target.closest('[data-filter]');if(b)setFilter(b.dataset.filter)};$('#sortSelect').onchange=render;$('#syncBtn').onclick=openSync;$('#saveCloudConfigBtn').onclick=saveCloud;window.addEventListener('online',()=>{updateSyncUI(currentUser?'ok':'signedout');scheduleSync()});window.addEventListener('offline',()=>updateSyncUI('offline'));document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')scheduleSync()});
 
-// v1.2: iOS/Safari対策。同期ダイアログ内のボタンはイベント委譲で確実に拾う。
-document.addEventListener('click', async (e)=>{
-  const btn=e.target.closest('button');
-  if(!btn)return;
+
+// v1.3: iOS/Safari向けに同期ボタン処理をwindowへ明示公開
+window.yonkomaSignIn = async function(){
   try{
-    if(btn.id==='signInBtn'){
-      e.preventDefault();
-      e.stopPropagation();
-      await signIn();
-    }else if(btn.id==='signUpBtn'){
-      e.preventDefault();
-      e.stopPropagation();
-      await signUp();
-    }else if(btn.id==='signOutBtn'){
-      e.preventDefault();
-      e.stopPropagation();
-      await signOut();
-    }else if(btn.id==='syncNowBtn'){
-      e.preventDefault();
-      e.stopPropagation();
-      await syncNow(false);
-    }
-  }catch(err){
-    console.error('sync button handler error',err);
-    toast(`処理エラー：${err?.message||'もう一度お試しください'}`);
+    toast('ログイン中…');
+    await signIn();
+  }catch(e){
+    console.error(e);
+    toast(`ログイン処理エラー：${e?.message||'接続を確認してください'}`);
   }
-}, true);
+};
+window.yonkomaSignUp = async function(){
+  try{ await signUp(); }catch(e){ console.error(e); toast(`アカウント作成エラー：${e?.message||'接続を確認してください'}`); }
+};
+window.yonkomaSyncNow = async function(){
+  try{ await syncNow(false); }catch(e){ console.error(e); toast(`同期エラー：${e?.message||'接続を確認してください'}`); }
+};
+window.yonkomaSignOut = async function(){
+  try{ await signOut(); }catch(e){ console.error(e); toast(`ログアウトエラー：${e?.message||'もう一度お試しください'}`); }
+};
 
 (async()=>{db=await openDB();await render();if(initSupabase()){await session();if(currentUser)scheduleSync();sb.auth.onAuthStateChange((_e,s)=>{currentUser=s?.user||null;if(currentUser)scheduleSync()})}if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{})})();
