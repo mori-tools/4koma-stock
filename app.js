@@ -17,12 +17,161 @@ async function removeEditing(){if(!editingId||!confirm('この4コマを削除�
 async function backup(){const items=await allRaw(),data=[];for(const x of items){const y={...x,imageBlob:null,imageData:null};if(x.imageBlob)y.imageData=await blobToData(x.imageBlob);data.push(y)}const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({version:1,items:data},null,2)],{type:'application/json'}));a.download=`4koma-stock-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 const blobToData=b=>new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result);f.readAsDataURL(b)});async function dataToBlob(d){return fetch(d).then(r=>r.blob())}
 async function restore(file){try{const j=JSON.parse(await file.text());for(const y of j.items||[]){if(y.imageData)y.imageBlob=await dataToBlob(y.imageData);delete y.imageData;y.updatedAt=nowIso();await put(y)}await render();toast('復元しました');scheduleSync()}catch{toast('復元できませんでした')}}
-function config(){try{return JSON.parse(localStorage.getItem(CONFIG_KEY)||'null')}catch{return null}}function initSupabase(){const c=config();if(!c||!window.supabase)return false;sb=window.supabase.createClient(c.url,c.key);return true}function updateSyncUI(s){const el=$('#syncStatus'),m={local:'ローカルのみ',signedout:'同期：未ログイン',syncing:'同期中…',ok:'同期済み',error:'同期エラー',offline:'オフライン'};el.dataset.state=s;el.textContent=m[s]||m.local}async function session(){if(!sb)return;const {data}=await sb.auth.getSession();currentUser=data.session?.user||null;updateSyncUI(currentUser?'ok':'signedout')}
-async function openSync(){const c=config();$('#supabaseUrl').value=c?.url||'';$('#supabaseKey').value=c?.key||'';$('#authPanel').classList.toggle('hidden',!c);$('#loggedInPanel').classList.toggle('hidden',!currentUser);$('#loggedOutPanel').classList.toggle('hidden',!!currentUser);$('#loggedInEmail').textContent=currentUser?.email||'';$('#syncDialog').showModal()}
-async function saveCloud(){const url=$('#supabaseUrl').value.trim(),key=$('#supabaseKey').value.trim();if(!url||!key){toast('URLとキーを入力してください');return}localStorage.setItem(CONFIG_KEY,JSON.stringify({url,key}));initSupabase();await session();$('#authPanel').classList.remove('hidden');toast('設定を保存しました')}
-async function signIn(){const {data,error}=await sb.auth.signInWithPassword({email:$('#syncEmail').value.trim(),password:$('#syncPassword').value});if(error){toast('ログインできませんでした');return}currentUser=data.user;$('#syncDialog').close();await syncNow();toast('ログインしました')}async function signUp(){const {data,error}=await sb.auth.signUp({email:$('#syncEmail').value.trim(),password:$('#syncPassword').value});if(error){toast(error.message);return}currentUser=data.session?.user||null;toast(currentUser?'アカウントを作成しました':'確認メールを開いて登録を完了してください');if(currentUser)await syncNow()}async function signOut(){await sb.auth.signOut();currentUser=null;updateSyncUI('signedout');toast('ログアウトしました')}
-function scheduleSync(){clearTimeout(syncTimer);syncTimer=setTimeout(syncNow,500)}
-async function syncNow(){if(syncRunning||!sb||!currentUser||!navigator.onLine)return;syncRunning=true;updateSyncUI('syncing');try{let local=await allRaw();const {data:remote,error}=await sb.from(SUPABASE_TABLE).select('*');if(error)throw error;const rm=new Map((remote||[]).map(r=>[r.id,r]));for(const x of local){const r=rm.get(x.id);if(!r||new Date(x.updatedAt)>new Date(r.updated_at)){let path=x.storagePath||r?.storage_path||'';if(x.imageBlob&&!x.deleted){path=path||`${currentUser.id}/${x.id}.${(x.imageType||'image/png').split('/')[1]||'png'}`;const up=await sb.storage.from(SUPABASE_BUCKET).upload(path,x.imageBlob,{upsert:true,contentType:x.imageType||'image/png'});if(up.error)throw up.error}const row={id:x.id,user_id:currentUser.id,title:x.title||'',post_text:x.postText||'',memo:x.memo||'',theme:x.theme||'',status:x.status||'idea',created_at:x.createdAt,used_at:x.usedAt||null,image_name:x.imageName||'',image_type:x.imageType||'image/png',storage_path:path,updated_at:x.updatedAt,deleted:!!x.deleted};const q=await sb.from(SUPABASE_TABLE).upsert(row);if(q.error)throw q.error;x.storagePath=path;await put(x)}}
-const {data:fresh,error:fe}=await sb.from(SUPABASE_TABLE).select('*');if(fe)throw fe;local=await allRaw();const lm=new Map(local.map(x=>[x.id,x]));for(const r of fresh||[]){const l=lm.get(r.id);if(!l||new Date(r.updated_at)>new Date(l.updatedAt)){let blob=l?.imageBlob||null;if(r.storage_path&&!r.deleted){const dl=await sb.storage.from(SUPABASE_BUCKET).download(r.storage_path);if(!dl.error)blob=dl.data}await put({id:r.id,title:r.title,postText:r.post_text,memo:r.memo,theme:r.theme,status:r.status,imageBlob:blob,imageName:r.image_name,imageType:r.image_type,storagePath:r.storage_path,createdAt:r.created_at,usedAt:r.used_at,updatedAt:r.updated_at,deleted:r.deleted})}}await render();updateSyncUI('ok')}catch(e){console.error(e);updateSyncUI('error');toast('同期エラー：設定SQLを確認してください')}finally{syncRunning=false}}
-$('#addBtn').onclick=()=>openEditor();$('#saveBtn').onclick=saveEditor;$('#deleteBtn').onclick=removeEditing;$('#backupBtn').onclick=backup;$('#restoreBtn').onclick=()=>$('#restoreInput').click();$('#restoreInput').onchange=e=>{if(e.target.files[0])restore(e.target.files[0]);e.target.value=''};$('.tabs').onclick=e=>{if(e.target.matches('.tab'))setFilter(e.target.dataset.filter)};document.querySelector('.summary').onclick=e=>{const b=e.target.closest('[data-filter]');if(b)setFilter(b.dataset.filter)};$('#sortSelect').onchange=render;$('#syncBtn').onclick=openSync;$('#saveCloudConfigBtn').onclick=saveCloud;$('#signInBtn').onclick=signIn;$('#signUpBtn').onclick=signUp;$('#signOutBtn').onclick=signOut;$('#syncNowBtn').onclick=syncNow;window.addEventListener('online',scheduleSync);document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')scheduleSync()});
+
+function config(){try{return JSON.parse(localStorage.getItem(CONFIG_KEY)||'null')}catch{return null}}
+function saveConfig(url,key){localStorage.setItem(CONFIG_KEY,JSON.stringify({url:url.trim(),key:key.trim()}))}
+function initSupabase(){
+  const c=config();
+  if(!c?.url||!c?.key||!window.supabase?.createClient){
+    sb=null;currentUser=null;updateSyncUI('local');return false
+  }
+  sb=window.supabase.createClient(c.url,c.key,{
+    auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}
+  });
+  return true
+}
+function updateSyncUI(s,msg=''){
+  const el=$('#syncStatus');
+  const m={local:'ローカルのみ',signedout:'同期：未ログイン',syncing:'同期中…',ok:'同期済み',error:'同期エラー',offline:'オフライン'};
+  if(el){el.dataset.state=s;el.textContent=msg||m[s]||m.local}
+}
+async function session(){
+  if(!sb){updateSyncUI('local');return}
+  try{
+    const {data,error}=await sb.auth.getSession();
+    if(error)throw error;
+    currentUser=data.session?.user||null;
+    updateSyncUI(currentUser?'ok':'signedout',currentUser?'同期準備完了':'同期：未ログイン');
+  }catch(e){
+    console.error('session error',e);currentUser=null;updateSyncUI('error')
+  }
+}
+async function openSync(){
+  const c=config()||{};
+  $('#supabaseUrl').value=c.url||'';
+  $('#supabaseKey').value=c.key||'';
+  $('#syncPassword').value='';
+  if(sb)await session();
+  $('#authPanel').classList.toggle('hidden',!sb);
+  $('#loggedInPanel').classList.toggle('hidden',!currentUser);
+  $('#loggedOutPanel').classList.toggle('hidden',!!currentUser);
+  $('#loggedInEmail').textContent=currentUser?.email||'';
+  $('#syncDialog').showModal()
+}
+async function saveCloud(){
+  const url=$('#supabaseUrl').value.trim(),key=$('#supabaseKey').value.trim();
+  if(!url||!key){toast('Project URLとPublishable / anon keyを入力してください');return}
+  saveConfig(url,key);
+  if(!initSupabase()){
+    toast('Supabaseライブラリを読み込めませんでした。ページを再読み込みしてください');
+    return
+  }
+  await session();
+  $('#authPanel').classList.remove('hidden');
+  $('#loggedInPanel').classList.toggle('hidden',!currentUser);
+  $('#loggedOutPanel').classList.toggle('hidden',!!currentUser);
+  toast('クラウド設定を保存しました')
+}
+async function signIn(){
+  try{
+    if(!sb){
+      if(!initSupabase()){toast('先にクラウド設定を保存してください');return}
+    }
+    const email=$('#syncEmail').value.trim(),password=$('#syncPassword').value;
+    if(!email||!password){toast('メールアドレスとパスワードを入力してください');return}
+    toast('ログイン中…');
+    const {data,error}=await sb.auth.signInWithPassword({email,password});
+    if(error){console.error(error);toast(`ログインできませんでした：${error.message}`);return}
+    currentUser=data.user;
+    toast('ログインしました');
+    $('#syncDialog').close();
+    await syncNow()
+  }catch(e){
+    console.error('signIn failed',e);
+    toast(`ログイン処理エラー：${e.message||'接続を確認してください'}`)
+  }
+}
+async function signUp(){
+  try{
+    if(!sb){
+      if(!initSupabase()){toast('先にクラウド設定を保存してください');return}
+    }
+    const email=$('#syncEmail').value.trim(),password=$('#syncPassword').value;
+    if(!email||password.length<6){toast('メールアドレスと6文字以上のパスワードを入力してください');return}
+    const {data,error}=await sb.auth.signUp({email,password});
+    if(error){toast(error.message);return}
+    currentUser=data.session?.user||null;
+    toast(currentUser?'アカウントを作成しました':'確認メールを開いて登録を完了してください');
+    if(currentUser)await syncNow()
+  }catch(e){console.error(e);toast(`アカウント作成エラー：${e.message||'接続を確認してください'}`)}
+}
+async function signOut(){
+  if(!sb)return;
+  await sb.auth.signOut();currentUser=null;updateSyncUI('signedout');
+  $('#loggedInPanel').classList.add('hidden');$('#loggedOutPanel').classList.remove('hidden');
+  toast('ログアウトしました')
+}
+function scheduleSync(){clearTimeout(syncTimer);syncTimer=setTimeout(()=>syncNow(true),700)}
+async function syncNow(silent=false){
+  if(syncRunning||!navigator.onLine)return;
+  if(!sb||!currentUser){if(!silent)toast('同期するにはログインしてください');return}
+  syncRunning=true;updateSyncUI('syncing');
+  try{
+    let local=await allRaw();
+    const {data:remote,error}=await sb.from(SUPABASE_TABLE).select('*').eq('user_id',currentUser.id);
+    if(error)throw error;
+    const rm=new Map((remote||[]).map(r=>[r.id,r]));
+    for(const x of local){
+      const r=rm.get(x.id);
+      if(!r||new Date(x.updatedAt)>new Date(r.updated_at)){
+        let path=x.storagePath||r?.storage_path||'';
+        if(x.imageBlob&&!x.deleted){
+          path=path||`${currentUser.id}/${x.id}.${(x.imageType||'image/png').split('/')[1]||'png'}`;
+          const body=x.imageBlob instanceof Blob ? await x.imageBlob.arrayBuffer() : x.imageBlob;
+          if(!body||(body.byteLength!==undefined&&body.byteLength===0))throw new Error('画像データが空です');
+          const up=await sb.storage.from(SUPABASE_BUCKET).upload(path,body,{
+            upsert:true,contentType:x.imageType||x.imageBlob?.type||'image/png',cacheControl:'3600'
+          });
+          if(up.error)throw up.error
+        }
+        const row={
+          id:x.id,user_id:currentUser.id,title:x.title||'',post_text:x.postText||'',memo:x.memo||'',
+          theme:x.theme||'',status:x.status||'idea',created_at:x.createdAt,used_at:x.usedAt||null,
+          image_name:x.imageName||'',image_type:x.imageType||'image/png',storage_path:path,
+          updated_at:x.updatedAt,deleted:!!x.deleted
+        };
+        const q=await sb.from(SUPABASE_TABLE).upsert(row,{onConflict:'id'});
+        if(q.error)throw q.error;
+        x.storagePath=path;await put(x)
+      }
+    }
+    const {data:fresh,error:fe}=await sb.from(SUPABASE_TABLE).select('*').eq('user_id',currentUser.id);
+    if(fe)throw fe;
+    local=await allRaw();
+    const lm=new Map(local.map(x=>[x.id,x]));
+    for(const r of fresh||[]){
+      const l=lm.get(r.id);
+      if(!l||new Date(r.updated_at)>new Date(l.updatedAt)){
+        let blob=l?.imageBlob||null;
+        if(r.storage_path&&!r.deleted){
+          const dl=await sb.storage.from(SUPABASE_BUCKET).download(r.storage_path);
+          if(dl.error)throw dl.error;
+          blob=dl.data
+        }
+        await put({
+          id:r.id,title:r.title,postText:r.post_text,memo:r.memo,theme:r.theme,status:r.status,
+          imageBlob:blob,imageName:r.image_name,imageType:r.image_type,storagePath:r.storage_path,
+          createdAt:r.created_at,usedAt:r.used_at,updatedAt:r.updated_at,deleted:r.deleted
+        })
+      }
+    }
+    await render();
+    updateSyncUI('ok',`同期済み ${new Intl.DateTimeFormat('ja-JP',{hour:'2-digit',minute:'2-digit'}).format(new Date())}`);
+    if(!silent)toast('スマホ / iPad用クラウドと同期しました')
+  }catch(e){
+    console.error('sync failed',e);updateSyncUI('error');
+    if(!silent)toast(`同期できませんでした：${e.message||'設定を確認してください'}`)
+  }finally{syncRunning=false}
+}
+$('#addBtn').onclick=()=>openEditor();$('#saveBtn').onclick=saveEditor;$('#deleteBtn').onclick=removeEditing;$('#backupBtn').onclick=backup;$('#restoreBtn').onclick=()=>$('#restoreInput').click();$('#restoreInput').onchange=e=>{if(e.target.files[0])restore(e.target.files[0]);e.target.value=''};$('.tabs').onclick=e=>{if(e.target.matches('.tab'))setFilter(e.target.dataset.filter)};document.querySelector('.summary').onclick=e=>{const b=e.target.closest('[data-filter]');if(b)setFilter(b.dataset.filter)};$('#sortSelect').onchange=render;$('#syncBtn').onclick=openSync;$('#saveCloudConfigBtn').onclick=saveCloud;$('#signInBtn').onclick=signIn;$('#signUpBtn').onclick=signUp;$('#signOutBtn').onclick=signOut;$('#syncNowBtn').onclick=()=>syncNow(false);window.addEventListener('online',()=>{updateSyncUI(currentUser?'ok':'signedout');scheduleSync()});window.addEventListener('offline',()=>updateSyncUI('offline'));document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')scheduleSync()});
 (async()=>{db=await openDB();await render();if(initSupabase()){await session();if(currentUser)scheduleSync();sb.auth.onAuthStateChange((_e,s)=>{currentUser=s?.user||null;if(currentUser)scheduleSync()})}if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{})})();
